@@ -1,0 +1,86 @@
+name: Daily OTT Post Generator
+
+on:
+  schedule:
+    # 6:00 AM UTC daily  (11:30 AM IST)
+    - cron: "0 6 * * *"
+
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Target date (YYYY-MM-DD). Leave empty for today."
+        required: false
+        default: ""
+      skip_enrich:
+        description: "Skip TMDb metadata enrichment (faster, fewer API calls)"
+        type: boolean
+        default: false
+      skip_approval:
+        description: "Skip GitHub review issue creation"
+        type: boolean
+        default: false
+
+jobs:
+  generate-draft:
+    name: Fetch Releases → Generate Draft
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      issues: write   # needed to create review issues
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install system fonts (for poster image generation)
+        run: sudo apt-get install -y --no-install-recommends fonts-dejavu-core
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build fetch arguments
+        id: args
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.date }}" ]; then
+            ARGS="$ARGS --date ${{ github.event.inputs.date }}"
+          fi
+          if [ "${{ github.event.inputs.skip_enrich }}" = "true" ]; then
+            ARGS="$ARGS --skip-enrich"
+          fi
+          if [ "${{ github.event.inputs.skip_approval }}" = "true" ]; then
+            ARGS="$ARGS --skip-approval"
+          fi
+          echo "fetch_args=$ARGS" >> "$GITHUB_OUTPUT"
+
+      - name: Generate OTT draft
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python main.py fetch ${{ steps.args.outputs.fetch_args }}
+
+      - name: Upload draft artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ott-draft-${{ github.run_id }}
+          path: drafts/
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Summary
+        run: |
+          echo "## OTT Draft Generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Artifact:** \`ott-draft-${{ github.run_id }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check the GitHub Issue created for review and approval." >> $GITHUB_STEP_SUMMARY
