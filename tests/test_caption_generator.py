@@ -39,13 +39,13 @@ def test_generate_daily_returns_caption(generator, sample_releases):
     assert len(caption.hashtags) == 4
 
 
-def test_generate_daily_falls_back_on_openai_error(generator, sample_releases):
+def test_generate_daily_falls_back_to_template_on_openai_error(generator, sample_releases):
     generator.client.chat.completions.create = MagicMock(side_effect=Exception("API down"))
     caption = generator.generate_daily(sample_releases, date(2025, 6, 7))
 
-    # Falls back to defaults — should not raise
+    # Falls back to template generator — should not raise, caption must be non-empty
     assert isinstance(caption, GeneratedCaption)
-    assert caption.short_caption  # non-empty fallback
+    assert caption.short_caption
     assert len(caption.hashtags) >= 1
 
 

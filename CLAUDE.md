@@ -76,7 +76,8 @@ All settings live in `src/config.py` (pydantic-settings). Copy `.env.example` to
 
 ```
 TMDB_API_KEY=...         # required
-OPENAI_API_KEY=...       # required
+OPENAI_API_KEY=...       # optional — omit to use free template captions
+IMGUR_CLIENT_ID=...      # Phase 2 — image hosting for Instagram publish
 INSTAGRAM_ACCESS_TOKEN=  # Phase 2
 INSTAGRAM_USER_ID=       # Phase 2
 GITHUB_TOKEN=            # auto-injected in Actions

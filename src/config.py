@@ -15,7 +15,11 @@ class Settings(BaseSettings):
 
     # ── Required API keys ────────────────────────────────────────────────────
     tmdb_api_key: str = Field(..., alias="TMDB_API_KEY")
-    openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
+
+    # ── OpenAI (optional) ────────────────────────────────────────────────────
+    # When set, captions are AI-generated. When absent, the free template
+    # generator is used automatically — no code change needed.
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
 
     # ── Instagram (Phase 2) ───────────────────────────────────────────────────
     instagram_access_token: str = Field(default="", alias="INSTAGRAM_ACCESS_TOKEN")

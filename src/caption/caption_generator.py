@@ -1,4 +1,7 @@
-"""Generates captions, hashtags, and engagement questions via OpenAI."""
+"""
+Caption generator — uses OpenAI when OPENAI_API_KEY is set, otherwise uses the
+template generator (free, no external API).
+"""
 from __future__ import annotations
 
 import json
@@ -7,11 +10,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
-from openai import OpenAI
-from tenacity import retry, stop_after_attempt, wait_exponential
-
 from src.aggregator.models import LANGUAGE_DISPLAY, Release
-from src.aggregator.platforms import get_platform_by_id, load_platforms
+from src.aggregator.platforms import load_platforms
 from src.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -57,23 +57,44 @@ def _releases_summary(releases: list[Release], platforms_map: dict) -> str:
 class CaptionGenerator:
     def __init__(self, settings: Optional[Settings] = None) -> None:
         self.settings = settings or get_settings()
-        self.client = OpenAI(api_key=self.settings.openai_api_key)
         self.platforms_map = {p.id: p for p in load_platforms()}
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=20))
+        # OpenAI is optional — fall back to template generator when key is absent
+        if self.settings.openai_api_key:
+            from openai import OpenAI
+            from tenacity import retry, stop_after_attempt, wait_exponential
+
+            self.client: Optional[object] = OpenAI(api_key=self.settings.openai_api_key)
+            logger.debug("Caption engine: OpenAI (%s)", self.settings.openai_model)
+        else:
+            self.client = None
+            logger.info("OPENAI_API_KEY not set — using free template caption generator")
+
+        from src.caption.template_generator import TemplateCaptionGenerator
+        self._template = TemplateCaptionGenerator()
+
     def _chat(self, user_prompt: str) -> dict:
-        resp = self.client.chat.completions.create(
-            model=self.settings.openai_model,
-            messages=[
-                {"role": "system", "content": _SYSTEM},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.8,
-            max_tokens=700,
-            response_format={"type": "json_object"},
-        )
-        raw = resp.choices[0].message.content or "{}"
-        return json.loads(raw)  # type: ignore[no-any-return]
+        from openai import OpenAI
+        from tenacity import retry, stop_after_attempt, wait_exponential
+
+        assert self.client is not None
+
+        @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=20))
+        def _call() -> dict:
+            resp = self.client.chat.completions.create(  # type: ignore[union-attr]
+                model=self.settings.openai_model,
+                messages=[
+                    {"role": "system", "content": _SYSTEM},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.8,
+                max_tokens=700,
+                response_format={"type": "json_object"},
+            )
+            raw = resp.choices[0].message.content or "{}"
+            return json.loads(raw)  # type: ignore[no-any-return]
+
+        return _call()
 
     def generate_daily(
         self,
@@ -82,6 +103,9 @@ class CaptionGenerator:
     ) -> GeneratedCaption:
         if target_date is None:
             target_date = date.today()
+
+        if self.client is None:
+            return self._template.generate_daily(releases, target_date)
 
         date_str = target_date.strftime("%B %d, %Y")
         summary = _releases_summary(releases, self.platforms_map)
@@ -103,8 +127,8 @@ class CaptionGenerator:
         try:
             data = self._chat(prompt)
         except Exception as exc:
-            logger.error("Caption generation failed: %s", exc)
-            data = {}
+            logger.error("OpenAI caption failed: %s — falling back to template", exc)
+            return self._template.generate_daily(releases, target_date)
 
         return GeneratedCaption(
             short_caption=data.get(
@@ -122,6 +146,9 @@ class CaptionGenerator:
         )
 
     def generate_weekly(self, releases: list[Release], week_label: str) -> GeneratedCaption:
+        if self.client is None:
+            return self._template.generate_weekly(releases, week_label)
+
         summary = _releases_summary(releases, self.platforms_map)
         prompt = (
             f"This is the {week_label} weekly OTT watchlist. Top releases:\n{summary}\n\n"
@@ -134,8 +161,8 @@ class CaptionGenerator:
         try:
             data = self._chat(prompt)
         except Exception as exc:
-            logger.error("Weekly caption failed: %s", exc)
-            data = {}
+            logger.error("OpenAI weekly caption failed: %s — falling back to template", exc)
+            return self._template.generate_weekly(releases, week_label)
 
         return GeneratedCaption(
             short_caption=data.get("short_caption", f"\U0001f5d3️ {week_label} OTT Watchlist is here!"),
