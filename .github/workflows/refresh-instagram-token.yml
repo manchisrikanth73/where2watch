@@ -1,0 +1,121 @@
+name: Refresh Instagram Access Token
+
+on:
+  schedule:
+    # Every Sunday at midnight UTC — tokens last 60 days, refreshing weekly is safe
+    - cron: "0 0 * * 0"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Force refresh even if token is healthy"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write   # needed to create failure-alert issues
+
+jobs:
+  refresh-token:
+    name: Inspect and refresh Instagram token
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Inspect and refresh token
+        id: refresh
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          INSTAGRAM_USER_ID: ${{ secrets.INSTAGRAM_USER_ID }}
+          FACEBOOK_APP_ID: ${{ secrets.FACEBOOK_APP_ID }}
+          FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
+        run: |
+          FORCE_FLAG=""
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            FORCE_FLAG="--force"
+          fi
+
+          NEW_TOKEN=$(python main.py refresh-token $FORCE_FLAG)
+          EXIT_CODE=$?
+
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "refresh_failed=true" >> "$GITHUB_OUTPUT"
+            exit 0  # handled below so the alert step can run
+          fi
+
+          if [ -n "$NEW_TOKEN" ]; then
+            # Mask immediately before any further logging
+            echo "::add-mask::$NEW_TOKEN"
+            echo "new_token=$NEW_TOKEN" >> "$GITHUB_OUTPUT"
+            echo "token_refreshed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "token_refreshed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update INSTAGRAM_ACCESS_TOKEN secret
+        if: steps.refresh.outputs.token_refreshed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          NEW_TOKEN: ${{ steps.refresh.outputs.new_token }}
+        run: |
+          echo "::add-mask::$NEW_TOKEN"
+          echo "$NEW_TOKEN" | gh secret set INSTAGRAM_ACCESS_TOKEN \
+            --repo "${{ github.repository }}"
+          echo "✅ INSTAGRAM_ACCESS_TOKEN updated in repository secrets"
+
+      - name: Create failure alert issue
+        if: steps.refresh.outputs.refresh_failed == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const title = `🚨 Instagram token refresh failed — ${new Date().toISOString().slice(0,10)}`;
+            const body = [
+              "## Instagram Access Token Refresh Failed",
+              "",
+              "The weekly token refresh workflow failed. Your Instagram access token may",
+              "be expired or invalid. Immediate action is required.",
+              "",
+              "### Steps to fix",
+              "1. Go to [Meta for Developers](https://developers.facebook.com/tools/explorer/)",
+              "2. Generate a new long-lived user access token with `instagram_basic`,",
+              "   `instagram_content_publish`, and `pages_read_engagement` permissions",
+              "3. Update the `INSTAGRAM_ACCESS_TOKEN` repository secret",
+              "4. Optionally re-run this workflow with **Force refresh** enabled",
+              "",
+              `**Workflow run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`,
+            ].join("\n");
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ["token-expired"],
+            });
+
+      - name: Job summary
+        if: always()
+        run: |
+          if [ "${{ steps.refresh.outputs.token_refreshed }}" = "true" ]; then
+            echo "## ✅ Token Refreshed" >> "$GITHUB_STEP_SUMMARY"
+            echo "Instagram access token was refreshed and the repository secret has been updated." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ steps.refresh.outputs.refresh_failed }}" = "true" ]; then
+            echo "## ❌ Token Refresh Failed" >> "$GITHUB_STEP_SUMMARY"
+            echo "A GitHub Issue has been created with remediation steps." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## ✅ Token Healthy" >> "$GITHUB_STEP_SUMMARY"
+            echo "Token is valid and not near expiry — no refresh was needed." >> "$GITHUB_STEP_SUMMARY"
+          fi
