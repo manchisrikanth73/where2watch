@@ -1,0 +1,108 @@
+name: Publish Approved OTT Draft
+
+# Triggered when a label is added to any issue.
+# Only proceeds when the label is 'ott-approved'.
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  publish:
+    name: Upload → Publish → Close Issue
+    if: github.event.label.name == 'ott-approved'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      issues: write    # to comment + close the review issue
+      actions: read    # to download artifact from the fetch run
+
+    steps:
+      # ── 1. Extract metadata embedded in the issue body ───────────────────
+      - name: Extract draft_date and run_id from issue body
+        id: meta
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          # Metadata is stored as HTML comments by approval_workflow.py:
+          #   <!-- draft_date: 2025-06-07 -->
+          #   <!-- run_id: 12345678 -->
+          DRAFT_DATE=$(printf '%s' "$ISSUE_BODY" | grep -oP '(?<=<!-- draft_date: )[\d-]+(?= -->)' | head -1)
+          RUN_ID=$(printf '%s' "$ISSUE_BODY" | grep -oP '(?<=<!-- run_id: )\d+(?= -->)' | head -1)
+
+          if [ -z "$DRAFT_DATE" ]; then
+            echo "::error::Could not extract draft_date from issue body."
+            exit 1
+          fi
+          if [ -z "$RUN_ID" ]; then
+            echo "::warning::run_id not found — artifact download will be skipped."
+          fi
+
+          echo "draft_date=$DRAFT_DATE" >> "$GITHUB_OUTPUT"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "Extracted → date: $DRAFT_DATE  run_id: $RUN_ID"
+
+      # ── 2. Checkout ───────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 3. Download the draft artifact produced by daily-ott-post.yml ────
+      - name: Download draft artifact
+        if: steps.meta.outputs.run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ott-draft-${{ steps.meta.outputs.run_id }}
+          path: drafts/
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.meta.outputs.run_id }}
+
+      # ── 4. Set up Python ──────────────────────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── 5. Upload poster to Imgur → get public URL ────────────────────────
+      - name: Upload poster to Imgur
+        id: upload
+        env:
+          IMGUR_CLIENT_ID: ${{ secrets.IMGUR_CLIENT_ID }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          IMAGE_URL=$(python main.py upload --date ${{ steps.meta.outputs.draft_date }})
+          if [ -z "$IMAGE_URL" ]; then
+            echo "::error::Imgur upload failed — is IMGUR_CLIENT_ID set in secrets?"
+            exit 1
+          fi
+          echo "image_url=$IMAGE_URL" >> "$GITHUB_OUTPUT"
+          echo "Poster public URL: $IMAGE_URL"
+
+      # ── 6. Publish to Instagram ───────────────────────────────────────────
+      - name: Publish to Instagram
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          INSTAGRAM_USER_ID: ${{ secrets.INSTAGRAM_USER_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python main.py publish \
+            --date ${{ steps.meta.outputs.draft_date }} \
+            --image-url "${{ steps.upload.outputs.image_url }}" \
+            --force
+
+      # ── 7. Summary ────────────────────────────────────────────────────────
+      - name: Write job summary
+        if: always()
+        run: |
+          echo "## Instagram Publish Result" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Draft date:** ${{ steps.meta.outputs.draft_date }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image URL:** ${{ steps.upload.outputs.image_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Issue:** #${{ github.event.issue.number }}" >> $GITHUB_STEP_SUMMARY

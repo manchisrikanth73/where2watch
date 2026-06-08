@@ -1,0 +1,104 @@
+{
+  "platforms": [
+    {
+      "id": "netflix",
+      "display_name": "Netflix",
+      "tmdb_provider_id": 8,
+      "region": "IN",
+      "color": "#E50914",
+      "text_color": "#FFFFFF",
+      "languages": ["hi", "en", "te", "ta", "ml", "kn"],
+      "emoji": "🔴"
+    },
+    {
+      "id": "prime_video",
+      "display_name": "Prime Video",
+      "tmdb_provider_id": 119,
+      "region": "IN",
+      "color": "#00A8E1",
+      "text_color": "#FFFFFF",
+      "languages": ["hi", "en", "te", "ta", "ml", "kn"],
+      "emoji": "🔵"
+    },
+    {
+      "id": "disney_hotstar",
+      "display_name": "Disney+ Hotstar",
+      "tmdb_provider_id": 122,
+      "region": "IN",
+      "color": "#1B46D2",
+      "text_color": "#FFFFFF",
+      "languages": ["hi", "en", "te", "ta", "ml", "kn"],
+      "emoji": "⭐"
+    },
+    {
+      "id": "aha",
+      "display_name": "Aha",
+      "tmdb_provider_id": 532,
+      "region": "IN",
+      "color": "#FF0066",
+      "text_color": "#FFFFFF",
+      "languages": ["te", "ta"],
+      "emoji": "🎬"
+    },
+    {
+      "id": "zee5",
+      "display_name": "Zee5",
+      "tmdb_provider_id": 232,
+      "region": "IN",
+      "color": "#6B2D90",
+      "text_color": "#FFFFFF",
+      "languages": ["hi", "te", "ta", "ml", "kn", "en"],
+      "emoji": "💜"
+    },
+    {
+      "id": "sonyliv",
+      "display_name": "SonyLIV",
+      "tmdb_provider_id": 237,
+      "region": "IN",
+      "color": "#003087",
+      "text_color": "#FFFFFF",
+      "languages": ["hi", "te", "ta", "en"],
+      "emoji": "📺"
+    },
+    {
+      "id": "jiohotstar",
+      "display_name": "JioHotstar",
+      "tmdb_provider_id": 220,
+      "region": "IN",
+      "color": "#0070F3",
+      "text_color": "#FFFFFF",
+      "languages": ["hi", "en", "te", "ta", "ml", "kn"],
+      "emoji": "🌟"
+    },
+    {
+      "id": "apple_tv",
+      "display_name": "Apple TV+",
+      "tmdb_provider_id": 350,
+      "region": "IN",
+      "color": "#1C1C1E",
+      "text_color": "#FFFFFF",
+      "languages": ["en"],
+      "emoji": "🍎"
+    },
+    {
+      "id": "hulu",
+      "display_name": "Hulu",
+      "tmdb_provider_id": 15,
+      "region": "US",
+      "color": "#1CE783",
+      "text_color": "#000000",
+      "languages": ["en"],
+      "emoji": "🟢"
+    },
+    {
+      "id": "max",
+      "display_name": "Max",
+      "tmdb_provider_id": 1899,
+      "region": "US",
+      "color": "#002BE7",
+      "text_color": "#FFFFFF",
+      "languages": ["en"],
+      "emoji": "💙"
+    }
+  ]
+}
