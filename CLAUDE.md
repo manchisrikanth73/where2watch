@@ -29,6 +29,8 @@ python main.py fetch --skip-approval     # skip GitHub Issue creation
 python main.py weekly                    # weekly watchlist (7-day lookback)
 python main.py check-approval --date 2025-06-07
 python main.py publish --date 2025-06-07 --image-url https://...
+python main.py refresh-token          # inspect token, refresh if < 14 days remain
+python main.py refresh-token --force  # force refresh regardless of expiry
 
 # Tests
 pytest                                   # all tests with coverage
@@ -66,8 +68,11 @@ main.py  (CLI, argparse)
   ├── ApprovalWorkflow       src/approval/approval_workflow.py
   │     └── GitHub Issues API — labels: ott-pending / ott-approved / ott-rejected
   │
-  └── InstagramPublisher     src/publisher/instagram_publisher.py
-        └── Instagram Graph API v19.0 (Phase 2)
+  ├── InstagramPublisher     src/publisher/instagram_publisher.py
+  │     └── Instagram Graph API v19.0 (Phase 2)
+  │
+  └── TokenRefresher         src/publisher/token_refresher.py
+        └── Facebook /debug_token + fb_exchange_token — auto-refreshes 60-day tokens
 ```
 
 ## Configuration
@@ -80,6 +85,8 @@ OPENAI_API_KEY=...       # optional — omit to use free template captions
 IMGUR_CLIENT_ID=...      # Phase 2 — image hosting for Instagram publish
 INSTAGRAM_ACCESS_TOKEN=  # Phase 2
 INSTAGRAM_USER_ID=       # Phase 2
+FACEBOOK_APP_ID=...      # Phase 2 — required for token auto-refresh
+FACEBOOK_APP_SECRET=...  # Phase 2 — required for token auto-refresh
 GITHUB_TOKEN=            # auto-injected in Actions
 GITHUB_REPOSITORY=       # auto-injected in Actions
 ```
@@ -90,7 +97,13 @@ Platform definitions (TMDb provider IDs, regions, language filters) are in `conf
 
 `.github/workflows/daily-ott-post.yml` — runs at 06:00 UTC daily.
 
+`.github/workflows/publish-approved.yml` — triggered when an issue gets the `ott-approved` label; downloads the draft artifact, uploads to Imgur, and publishes to Instagram.
+
+`.github/workflows/refresh-instagram-token.yml` — runs every Sunday at midnight UTC; inspects the token via `/debug_token`, refreshes with `fb_exchange_token` if < 14 days remain, and updates `INSTAGRAM_ACCESS_TOKEN` via `gh secret set` using `GH_PAT`. Creates a GitHub Issue with `token-expired` label on failure.
+
 Required repository secrets: `TMDB_API_KEY`, `OPENAI_API_KEY`.  
+Phase 2 secrets: `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_USER_ID`, `IMGUR_CLIENT_ID`, `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, `GH_PAT` (a Personal Access Token with `secrets:write` scope — needed for the token refresh workflow to update `INSTAGRAM_ACCESS_TOKEN`).
+
 Workflow permissions must be set to **read and write** (for issue creation).
 
 Draft artifacts are uploaded as `ott-draft-{run_id}` with 7-day retention.

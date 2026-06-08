@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     # Register a free app at https://api.imgur.com/oauth2/addclient
     imgur_client_id: str = Field(default="", alias="IMGUR_CLIENT_ID")
 
+    # ── Facebook App (required for Instagram token auto-refresh) ─────────────
+    # Register a Facebook App at https://developers.facebook.com/apps/
+    # The same app that powers the Instagram Graph API integration.
+    facebook_app_id: str = Field(default="", alias="FACEBOOK_APP_ID")
+    facebook_app_secret: str = Field(default="", alias="FACEBOOK_APP_SECRET")
+
     # ── GitHub (auto-injected in Actions) ────────────────────────────────────
     github_token: str = Field(default="", alias="GITHUB_TOKEN")
     github_repository: str = Field(default="", alias="GITHUB_REPOSITORY")

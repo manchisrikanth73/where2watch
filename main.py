@@ -9,6 +9,7 @@ Commands
   check-approval Check GitHub Issue approval status for a draft date
   upload         Upload poster to Imgur and print the public URL (Phase 2)
   publish        Publish an approved draft to Instagram (Phase 2)
+  refresh-token  Inspect and refresh the Instagram access token (Phase 2)
 
 Examples
 --------
@@ -20,6 +21,8 @@ Examples
   python main.py upload --date 2025-06-07
   python main.py upload --date 2025-06-07 --all-slides
   python main.py publish --date 2025-06-07 --image-url https://...
+  python main.py refresh-token
+  python main.py refresh-token --force
 """
 from __future__ import annotations
 
@@ -255,6 +258,65 @@ def cmd_publish(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_refresh_token(args: argparse.Namespace) -> int:
+    """Inspect and conditionally refresh the Instagram access token.
+
+    Prints the new token to stdout ONLY when a refresh occurred (so the calling
+    workflow can capture it via command substitution).  Exits 0 when healthy or
+    successfully refreshed, exits 1 on failure.
+    """
+    from src.config import get_settings
+    from src.publisher.token_refresher import TokenRefresher
+
+    settings = get_settings()
+    refresher = TokenRefresher(settings)
+
+    if not settings.instagram_access_token:
+        logger.error("INSTAGRAM_ACCESS_TOKEN is not set — nothing to inspect")
+        return 1
+
+    if not settings.facebook_app_id or not settings.facebook_app_secret:
+        logger.error(
+            "FACEBOOK_APP_ID and FACEBOOK_APP_SECRET are required for token refresh. "
+            "Register a Facebook App at https://developers.facebook.com/apps/"
+        )
+        return 1
+
+    try:
+        info = refresher.inspect_token()
+    except Exception as exc:
+        logger.error("Failed to inspect token: %s", exc)
+        return 1
+
+    if not info.is_valid:
+        logger.error("Token is INVALID: %s", info.error)
+        # Still attempt a refresh — sometimes debug_token is wrong but exchange works
+        should_refresh = True
+    elif info.never_expires:
+        logger.info("Token never expires — no refresh needed")
+        return 0
+    else:
+        days = info.days_remaining or 0
+        logger.info("Token expires in %d day(s)", days)
+        should_refresh = args.force or refresher.needs_refresh(threshold_days=14)
+
+    if not should_refresh:
+        logger.info("Token is healthy — no refresh needed")
+        return 0
+
+    logger.info("Refreshing token…")
+    try:
+        new_token = refresher.refresh()
+    except Exception as exc:
+        logger.error("Token refresh failed: %s", exc)
+        return 1
+
+    # Print the new token to stdout so the workflow can capture it.
+    # The workflow must mask it immediately with `echo "::add-mask::$NEW_TOKEN"`.
+    print(new_token)
+    return 0
+
+
 # ── Argument parser ────────────────────────────────────────────────────────────
 
 def build_parser() -> argparse.ArgumentParser:
@@ -285,6 +347,13 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--carousel-urls", help="JSON array of public URLs for a carousel post")
     pp.add_argument("--force", action="store_true", help="Skip approval check")
 
+    prt = sub.add_parser("refresh-token", help="Inspect and refresh the Instagram access token")
+    prt.add_argument(
+        "--force",
+        action="store_true",
+        help="Refresh even if the token is healthy and not near expiry",
+    )
+
     return p
 
 
@@ -297,6 +366,7 @@ def main() -> None:
         "check-approval": cmd_check_approval,
         "upload": cmd_upload,
         "publish": cmd_publish,
+        "refresh-token": cmd_refresh_token,
     }
     fn = handlers.get(args.command)
     if fn is None:
