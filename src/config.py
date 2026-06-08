@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     instagram_access_token: str = Field(default="", alias="INSTAGRAM_ACCESS_TOKEN")
     instagram_user_id: str = Field(default="", alias="INSTAGRAM_USER_ID")
 
+    # ── Image hosting (Phase 2) ───────────────────────────────────────────────
+    # Register a free app at https://api.imgur.com/oauth2/addclient
+    imgur_client_id: str = Field(default="", alias="IMGUR_CLIENT_ID")
+
     # ── GitHub (auto-injected in Actions) ────────────────────────────────────
     github_token: str = Field(default="", alias="GITHUB_TOKEN")
     github_repository: str = Field(default="", alias="GITHUB_REPOSITORY")

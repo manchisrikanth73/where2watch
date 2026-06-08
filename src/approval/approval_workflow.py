@@ -54,7 +54,12 @@ class ApprovalWorkflow:
                     except Exception as inner:
                         logger.warning("Could not create label %s: %s", name, inner)
 
-    def create_review_issue(self, draft_date: date, release_count: int) -> Optional[int]:
+    def create_review_issue(
+        self,
+        draft_date: date,
+        release_count: int,
+        run_id: str = "",
+    ) -> Optional[int]:
         if not self._has_credentials():
             logger.info("GitHub credentials not set — skipping review issue creation")
             return None
@@ -62,9 +67,22 @@ class ApprovalWorkflow:
         self._ensure_labels()
 
         date_str = draft_date.strftime("%B %d, %Y")
+
+        # HTML comments carry machine-readable metadata for publish-approved.yml
+        meta_comments = (
+            f"<!-- draft_date: {draft_date.isoformat()} -->\n"
+            f"<!-- run_id: {run_id} -->\n\n"
+        )
+        artifact_note = (
+            f"\n**Artifact:** `ott-draft-{run_id}` (download from the Actions run)\n"
+            if run_id
+            else ""
+        )
+
         body = (
-            f"## OTT Draft Ready for Review — {date_str}\n\n"
-            f"**Releases found:** {release_count}\n\n"
+            meta_comments
+            + f"## OTT Draft Ready for Review — {date_str}\n\n"
+            f"**Releases found:** {release_count}{artifact_note}\n\n"
             "### Review Checklist\n"
             "- [ ] Poster image looks correct\n"
             "- [ ] Caption is engaging and error-free\n"
@@ -116,3 +134,33 @@ class ApprovalWorkflow:
                 logger.warning("Issue lookup failed (%s): %s", state, exc)
 
         return "pending"
+
+    def find_issue_number(self, draft_date: date) -> Optional[int]:
+        """Returns the GitHub Issue number for the given draft date, or None."""
+        if not self._has_credentials():
+            return None
+        key = draft_date.isoformat()
+        for state in ("open", "closed"):
+            try:
+                resp = self._api("GET", "/issues", params={"state": state, "per_page": 30})
+                for issue in resp.json():
+                    if key in (issue.get("body") or ""):
+                        return int(issue["number"])
+            except Exception as exc:
+                logger.warning("Issue search failed (%s): %s", state, exc)
+        return None
+
+    def close_issue(self, issue_number: int, comment: str = "") -> None:
+        """Posts an optional comment then closes the issue."""
+        if not self._has_credentials():
+            return
+        if comment:
+            try:
+                self._api("POST", f"/issues/{issue_number}/comments", json={"body": comment})
+            except Exception as exc:
+                logger.warning("Could not comment on issue #%d: %s", issue_number, exc)
+        try:
+            self._api("PATCH", f"/issues/{issue_number}", json={"state": "closed"})
+            logger.info("Closed issue #%d", issue_number)
+        except Exception as exc:
+            logger.warning("Could not close issue #%d: %s", issue_number, exc)
