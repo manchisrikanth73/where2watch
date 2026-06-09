@@ -30,6 +30,9 @@ data/published/*/
 !data/releases/.gitkeep
 !data/published/.gitkeep
 
+# Graphify knowledge graph outputs (generated)
+graphify-out/
+
 # OS
 .DS_Store
 Thumbs.db
