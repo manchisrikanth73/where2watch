@@ -28,7 +28,10 @@ python main.py fetch --skip-enrich       # skip TMDb enrichment (faster)
 python main.py fetch --skip-approval     # skip GitHub Issue creation
 python main.py weekly                    # weekly watchlist (7-day lookback)
 python main.py check-approval --date 2025-06-07
+python main.py upload --date 2025-06-07               # upload poster to Imgur, print URL
+python main.py upload --date 2025-06-07 --all-slides  # upload weekly slides, print JSON array
 python main.py publish --date 2025-06-07 --image-url https://...
+python main.py publish --date 2025-06-07 --carousel-urls '["url1","url2"]'
 python main.py refresh-token          # inspect token, refresh if < 14 days remain
 python main.py refresh-token --force  # force refresh regardless of expiry
 
@@ -40,8 +43,8 @@ pytest --no-cov                          # without coverage report
 
 # Lint / format
 ruff check src/ tests/                   # lint
-black src/ tests/                        # format
-mypy src/                                # type check
+black src/ tests/                        # format (line-length=100)
+mypy src/                                # type check (strict mode)
 ```
 
 ## Architecture
@@ -51,7 +54,7 @@ main.py  (CLI, argparse)
   │
   ├── OTTAggregator          src/aggregator/ott_aggregator.py
   │     ├── TMDb /discover/movie + /discover/tv
-  │     └── models: Release, ContentType    src/aggregator/models.py
+  │     └── models: Release, ContentType, Language    src/aggregator/models.py
   │
   ├── TMDbService            src/metadata/tmdb_service.py
   │     └── TMDb /{media_type}/{id} + /credits
@@ -61,6 +64,7 @@ main.py  (CLI, argparse)
   │
   ├── CaptionGenerator       src/caption/caption_generator.py
   │     └── OpenAI gpt-4o-mini, JSON mode, returns GeneratedCaption
+  │     └── Falls back to TemplateCaptionGenerator if OPENAI_API_KEY is absent or call fails
   │
   ├── DraftManager           src/draft/draft_manager.py
   │     └── drafts/YYYY-MM-DD/{poster.png, caption.txt, metadata.json, ...}
@@ -68,8 +72,11 @@ main.py  (CLI, argparse)
   ├── ApprovalWorkflow       src/approval/approval_workflow.py
   │     └── GitHub Issues API — labels: ott-pending / ott-approved / ott-rejected
   │
+  ├── ImgurHost              src/publisher/image_host.py
+  │     └── upload_poster() / upload_slides() — anonymous Imgur upload, returns public URL(s)
+  │
   ├── InstagramPublisher     src/publisher/instagram_publisher.py
-  │     └── Instagram Graph API v19.0 (Phase 2)
+  │     └── Instagram Graph API v19.0 — publish_single() / publish_carousel()
   │
   └── TokenRefresher         src/publisher/token_refresher.py
         └── Facebook /debug_token + fb_exchange_token — auto-refreshes 60-day tokens
@@ -91,7 +98,7 @@ GITHUB_TOKEN=            # auto-injected in Actions
 GITHUB_REPOSITORY=       # auto-injected in Actions
 ```
 
-Platform definitions (TMDb provider IDs, regions, language filters) are in `config/platforms.json`.
+Platform definitions (TMDb provider IDs, regions, language filters) are in `config/platforms.json`. Currently covers **8 Indian platforms** (Netflix, Prime, Hotstar, Aha, Zee5, SonyLIV, JioHotstar, Apple TV+) and **2 US platforms** (Hulu, Max). Languages tracked: Telugu, Hindi, Tamil, Malayalam, Kannada, English.
 
 ## GitHub Actions
 
@@ -108,13 +115,18 @@ Workflow permissions must be set to **read and write** (for issue creation).
 
 Draft artifacts are uploaded as `ott-draft-{run_id}` with 7-day retention.
 
+The labels `ott-pending`, `ott-approved`, `ott-rejected`, and `token-expired` must be **pre-created** in the repo before workflows run — they are not auto-created.
+
 ## Key Conventions
 
 - `Release.to_dict()` / `Release.from_dict()` are the serialisation boundary — always use these for JSON persistence.
 - All external HTTP calls go through `tenacity` retry decorators — do not call `requests` directly without retry handling.
 - `CaptionGenerator._chat()` always uses `response_format={"type": "json_object"}` — OpenAI must return valid JSON; fallback defaults are defined in `generate_daily()`.
+- `GeneratedCaption.full_post()` renders the final Instagram post text (long caption + hashtags + engagement question).
 - `PosterGenerator` never generates AI images — only official poster art from `https://image.tmdb.org/t/p/w500{poster_path}` is used. If a poster fails to download, a coloured placeholder with the title is rendered instead.
 - Draft `metadata.json` is the source of truth for status (`pending` → `approved`/`rejected` → `published`/`failed`).
+- `TokenRefresher`: validation (missing credentials/token) happens in public methods before calling retry-decorated private methods (`_call_debug_token`, `_call_token_exchange`) — keeps tenacity from retrying `ValueError`.
+- In tests, use the `responses` library (HTTP mocking) and the shared fixtures in `tests/conftest.py` (`sample_releases`, `sample_caption`, `mock_settings`).
 
 ## Docs
 
