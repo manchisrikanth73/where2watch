@@ -298,7 +298,11 @@ def cmd_refresh_token(args: argparse.Namespace) -> int:
     else:
         days = info.days_remaining or 0
         logger.info("Token expires in %d day(s)", days)
-        should_refresh = args.force or refresher.needs_refresh(threshold_days=14)
+        try:
+            should_refresh = args.force or refresher.needs_refresh(threshold_days=14)
+        except Exception as exc:
+            logger.error("Failed to check token refresh status: %s", exc)
+            return 1
 
     if not should_refresh:
         logger.info("Token is healthy — no refresh needed")
@@ -309,6 +313,20 @@ def cmd_refresh_token(args: argparse.Namespace) -> int:
         new_token = refresher.refresh()
     except Exception as exc:
         logger.error("Token refresh failed: %s", exc)
+        return 1
+
+    # Verify the new token is valid before printing — the workflow uses stdout
+    # to capture it and immediately overwrites the INSTAGRAM_ACCESS_TOKEN secret.
+    # Printing an invalid token would lock us out.
+    try:
+        new_info = refresher.inspect_token(token=new_token)
+        if not new_info.is_valid:
+            logger.error("New token verification failed: %s", new_info.error)
+            return 1
+        days = new_info.days_remaining or 0
+        logger.info("New token verified — expires in ~%d day(s)", days)
+    except Exception as exc:
+        logger.error("Failed to verify new token: %s", exc)
         return 1
 
     # Print the new token to stdout so the workflow can capture it.

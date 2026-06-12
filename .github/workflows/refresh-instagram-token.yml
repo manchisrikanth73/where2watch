@@ -47,15 +47,17 @@ jobs:
             FORCE_FLAG="--force"
           fi
 
+          # Disable errexit so we can capture the exit code manually.
+          # GitHub Actions runs with set -e by default; without this the script
+          # dies at the assignment line and EXIT_CODE is never captured.
+          set +e
           NEW_TOKEN=$(python main.py refresh-token $FORCE_FLAG)
           EXIT_CODE=$?
+          set -e
 
           if [ $EXIT_CODE -ne 0 ]; then
             echo "refresh_failed=true" >> "$GITHUB_OUTPUT"
-            exit 0  # handled below so the alert step can run
-          fi
-
-          if [ -n "$NEW_TOKEN" ]; then
+          elif [ -n "$NEW_TOKEN" ]; then
             # Mask immediately before any further logging
             echo "::add-mask::$NEW_TOKEN"
             echo "new_token=$NEW_TOKEN" >> "$GITHUB_OUTPUT"
