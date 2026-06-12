@@ -33,3 +33,6 @@ data/published/*/
 # OS
 .DS_Store
 Thumbs.db
+
+# Knowledge graph artifacts
+graphify-out/
